@@ -1,0 +1,92 @@
+import cv2
+import torch
+import numpy as np
+import time
+import serial
+
+# bit info
+### b7 b6 b5 b4 b3 b2 b1
+###  x  x  x  x en dr dr
+
+# en : traffic light info, 1 -> enable, 0 -> disable
+# dr : 00 = off, 01 = up, 10 = down
+
+class VideoFrame(object) :
+    FRAME_WIDTH = 0
+    FRAME_HEIGHT = 0
+    
+    def __init__(self, rect_map) :
+        self.model = torch.hub.load('ultralytics/yolov5:master', 'yolov5s')
+        self.cap = cv2.VideoCapture(0)
+        FRAME_WIDTH = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)) # 640
+        FRAME_HEIGHT = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) # 480
+        self.cw_rect = rect_map
+        
+        self.threshold_line = (self.cw_rect['y1'] + self.cw_rect['y2']) / 2
+        
+        self.isInRect = lambda x, y : (x > self.cw_rect['x1'] and x < self.cw_rect['x2'] and y > self.cw_rect['y1'] and y < self.cw_rect['y2'])
+
+        self.ret = None
+        self.frame = None
+        self.entrence_buffer = '0'
+
+    
+    def read_frame(self) :
+        self.ret, self.frame = self.cap.read()
+    
+    def entrance_check(self) :
+        detected_obj = self.model(self.frame)
+        person_boxes = detected_obj.pred[0][detected_obj.pred[0][:, 5] == 0, :4]
+        
+        num_people = person_boxes.shape[0]
+        person_in_rect = list(filter(lambda i : self.isInRect((i.tolist()[0] + i.tolist()[2]) / 2, (i.tolist()[1] + i.tolist()[3]) / 2), person_boxes))
+        
+        if len(person_in_rect) == 0 and self.entrence_buffer != '0':
+            self.entrence_buffer = '0'
+
+        elif len(person_in_rect) and self.entrence_buffer == '0':
+            if (person_in_rect[0].tolist()[1] + person_in_rect[0].tolist()[3]) / 2 - self.threshold_line >= 0 :
+                self.entrence_buffer = '1'
+            else :
+                self.entrence_buffer = '2'
+        
+        print("entrance_check : ", num_people, self.entrence_buffer)
+        return self.entrence_buffer
+
+    def show(self) :
+        cv2.imshow("webcam",self.frame)
+
+
+class TrafficController(object) :
+
+    def __init__(self) :
+        self.serial_port = serial.Serial(port="/dev/ttyUSB0", baudrate = 9600)
+        self.video_ctl = VideoFrame({ 'x1' : 182, 'y1' : 120, 'x2' : 455, 'y2' : 360})
+        
+    def run(self) :
+        ans = None
+        while True:
+            print("run...")
+            if self.serial_port.readable() :
+                self.video_ctl.read_frame()
+                if(self.serial_port.readable()) :
+                    ans = self.serial_port.read()
+                print(ans)
+                detection_res = self.video_ctl.entrance_check()
+                print("detection_res : ", detection_res.encode())
+
+                self.serial_port.write(detection_res.encode(encoding='ascii'))
+                if (self.serial_port.readable()) :
+                    print("arduino ans : ", self.serial_port.read())
+            
+            self.video_ctl.show()
+            if cv2.waitKey(1) == ord('q'):
+                break
+    
+
+def main() :
+    TrafficController().run()
+
+if __name__ == "__main__" :
+    main()
+        
