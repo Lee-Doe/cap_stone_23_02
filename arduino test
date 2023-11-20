@@ -1,0 +1,58 @@
+unsigned char ans_from_yolo;
+unsigned char curr_light = 1;
+unsigned char blink_cnt = 40;
+
+int cnt = 0;
+unsigned char mask = 0x03;
+
+int _blink() {
+  return --blink_cnt;
+}
+
+void _toggle_light() {
+  curr_light = curr_light ^ 0x01;
+}
+
+void setup() {
+  // put your setup code here, to run once:
+  pinMode(7, OUTPUT);
+  Serial.begin(9600);
+  pinMode(13, OUTPUT);
+  curr_light = 1;
+}
+
+void loop() {
+
+  digitalWrite(7, curr_light);
+
+  if(curr_light > 0) {
+    Serial.print('1');
+    if(Serial.available()) {
+      ans_from_yolo = (char)Serial.read();
+      delay(10);
+      Serial.print(ans_from_yolo);
+      switch(ans_from_yolo) {
+        case 1:
+          digitalWrite(13, HIGH); // UP
+          break;
+        case 2:
+          digitalWrite(13, HIGH); // DOWN
+          break;
+        default :
+          digitalWrite(13, LOW);
+      }
+    }
+  }
+  else {
+    digitalWrite(13, LOW);
+  }
+
+  int light_cnt = _blink();
+  
+  if(light_cnt == 0) {
+    _toggle_light();
+    blink_cnt = 40;
+  }
+
+  delay(1000);
+}
